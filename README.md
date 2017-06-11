@@ -11,6 +11,10 @@ This is a fork of the BurgessWorld [example sketch](https://github.com/cburgess5
 
 ## Change Log
 
+### v0.70
+
+- Battery level reporting via MQTT
+
 ### v0.6
 
 - Replace WiFi library with [bportaluri WiFiEsp.h](https://github.com/bportaluri/WiFiEsp)

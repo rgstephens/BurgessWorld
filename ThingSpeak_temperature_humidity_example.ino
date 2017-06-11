@@ -22,7 +22,7 @@
 #include <DHT.h>
 
 #define PROG_NAME "BurgessWorldMQTT, "
-#define PROG_VERS "v0.6"
+#define PROG_VERS "v0.70"
 
 //comment out the following line to disable status LEDS when running on batteries
 #define EnableLEDs
@@ -43,6 +43,9 @@ unsigned long confTempDelay = DelayMS;    // Default temperature publish delay.
 #define MQTT_SERVER  "15.1.4.4"
 #define MQTT_PORT    8883
 #define MQTT_TOPICBASE "arduino/"
+
+// number of analog battery samples to take per reading
+#define NUM_SAMPLES 10
 
 // Define DHT Sensor type - uncomment whatever type you're using
 //#define DHTTYPE DHT11   // DHT 11
@@ -164,6 +167,9 @@ void setupWifi() {
 
 void mqttCallback(char* topic, byte* payload, unsigned int length)
 {
+  Serial.println(">> mqttCallback <<");
+  Serial.print("mqtt received topic: ");
+  Serial.println(topic);
   payload[length] = 0;    // Hack to be able to use this as a char string.
 
   if (strstr(topic, MQTT_TOPICBASE "config/"))
@@ -191,12 +197,46 @@ void mqttReconnect()
       String strIp = IpAddress2String(WiFi.localIP());
       Publish((char *)"ip", strIp.c_str());
       // Subscribe to enable bi-directional comms.
-      mqttClient.subscribe(MQTT_TOPICBASE "config/#");  // Allow bootup config fetching using MQTT persist flag!
+      Serial.println(">> subscribe <<");
+      Serial.println(MQTT_TOPICBASE "config/#");
+      bool status;
+      status = mqttClient.subscribe(MQTT_TOPICBASE "config/#");  // Allow bootup config fetching using MQTT persist flag!
+      //Serial.println(status);
       mqttClient.subscribe(MQTT_TOPICBASE "put/#");     // Send commands to this device, use Home/LetterBox/Get/# for responses.
+      //delay(6000);
     }
     else
       delay(5000);
   }
+}
+
+void checkBattery() {
+    int sum = 0;                    // sum of samples taken
+    unsigned char sample_count = 0; // current sample number
+    float voltage = 0.0;            // calculated voltage
+    float volts = 0.0;
+
+    // take a number of analog samples and add them up
+    while (sample_count < NUM_SAMPLES) {
+        sum += analogRead(A0);
+        sample_count++;
+        delay(10);
+    }
+    // calculate the voltage
+    // use 5.0 for a 5.0V ADC reference voltage
+    // 5.015V is the calibrated reference voltage
+    voltage = ((float)sum / (float)NUM_SAMPLES * 1.1) / 1024.0;
+    // send voltage for display on Serial Monitor
+    // voltage multiplied by 11 when using voltage divider that
+    // divides by 11. 11.132 is the calibrated voltage divide
+    // value
+    volts = voltage * 4.45;
+    Serial.print("Battery: ");
+    Serial.print(volts);
+    Serial.println(" V");
+    PublishFloat("battery", volts);
+    sample_count = 0;
+    sum = 0;
 }
 
 void setup() {
@@ -266,6 +306,8 @@ void loop() {
     //send message
     PublishInt("temp", reading_r.f);
     PublishInt("humidity", reading_r.h);
+    // battery
+    checkBattery();
     //put ESP to sleep
     Serial.print(F("Put ESP to sleep... "));
     bool espAsleep = false;
@@ -355,10 +397,6 @@ struct reading readSensor(){
   //add readings to struct and return
   reading_r.h = (sumReadHUM / 2);
   reading_r.f = (sumReadTMP / 2);
-  Serial.print(F("Humidity: "));
-  Serial.println(reading_r.h);
-  Serial.print(F("Fahreheit: "));
-  Serial.println(reading_r.f);
   return reading_r;
 }
 
@@ -390,13 +428,17 @@ void PublishInt(char *Topic, int Value)
 
 void PublishFloat(char *Topic, float Value)
 {
-  char TopicBase[80] = MQTT_TOPICBASE;
+  Serial.print("PublishFloat ");
+  char TopicBase[40] = MQTT_TOPICBASE;
   char Message[10] = "NULL";
 
   if (!isnan(Value))
     dtostrf(Value, 5, 2, Message);
 
   strcat(TopicBase, Topic);
+  Serial.print(TopicBase);
+  Serial.print(" = ");
+  Serial.println(Message);
   mqttClient.publish(TopicBase, Message);
 }
 
